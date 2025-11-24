@@ -1,10 +1,9 @@
-// src/services/userService.js
 import api from './api';
 
 export const userService = {
   Login: async (credentials) => {
     const response = await api.post('/users/login', {
-      userName: credentials.user,       // 👈 OJO: el DTO espera UserName
+      userName: credentials.user,        // 👈 clave correcta
       password: credentials.password,
     });
     return response.data;
@@ -33,5 +32,5 @@ export const userService = {
   Delete: async (id) => {
     const response = await api.delete(`/users/${id}`);
     return response.data;
-  }
+  },
 };

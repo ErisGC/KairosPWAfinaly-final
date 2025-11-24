@@ -11,6 +11,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import { useEffect, useState } from 'react';
 import { serviceService } from './services/serviceService';
 import { turnService } from './services/turnService';
+import ScreenView from './views/screen';   // 👈 NUEVO IMPORT
 import './App.css';
 
 // Vistas placeholder del EMPLEADO (las completamos luego)
@@ -144,6 +145,9 @@ function App() {
           <Routes>
             {/* Página principal: servicios desde la API */}
             <Route path="/" element={<HomeView />} />
+
+            {/* Pantalla pública de turnos */}
+            <Route path="/pantalla" element={<ScreenView />} />
 
             {/* Público */}
             <Route path="/login" element={<LoginView />} />

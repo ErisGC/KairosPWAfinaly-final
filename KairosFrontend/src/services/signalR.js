@@ -1,5 +1,5 @@
-// src/services/signalR.js (o .cs si así lo tienes en el proyecto, pero es JS)
-import * as signalR from "@microsoft/signalr";
+// src/services/signalR.js
+import * as signalR from '@microsoft/signalr';
 
 let connection = null;
 
@@ -14,3 +14,5 @@ export const startConnection = async () => {
   await connection.start();
   return connection;
 };
+
+export const getConnection = () => connection;

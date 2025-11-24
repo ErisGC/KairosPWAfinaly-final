@@ -1,3 +1,4 @@
+// src/components/registerForm.jsx
 import React, { useEffect, useState } from 'react';
 import { userService } from '../services/userService';
 import { rolService } from '../services/rolService';
@@ -24,7 +25,7 @@ function RegisterForm() {
         setRoles(data || []);
       } catch (err) {
         console.error(err);
-        setError('No se pudieron cargar los roles. Verifica que el backend esté levantado.');
+        setError('No se pudieron cargar los roles. Verifica que el backend esté levantado y que estés logueado como Administrador.');
       } finally {
         setCargandoRoles(false);
       }
@@ -43,7 +44,7 @@ function RegisterForm() {
     setError('');
     setExito('');
 
-    // Validaciones básicas
+    // Validaciones básicas en front
     if (!form.name.trim()) {
       setError('El nombre de usuario es obligatorio.');
       return;
@@ -88,8 +89,19 @@ function RegisterForm() {
       }));
     } catch (err) {
       console.error(err);
+
+      // Si el backend envía { message: "..." }
       if (err.response?.data?.message) {
         setError(err.response.data.message);
+      }
+      // Si el backend envía errores de validación (ModelState)
+      else if (err.response?.data?.errors) {
+        const errors = err.response.data.errors;
+        // Unir todos los mensajes en un solo string
+        const mensajes = Object.values(errors)
+          .flat()
+          .join(' ');
+        setError(mensajes || 'Error de validación en el servidor.');
       } else {
         setError('Error al registrar el usuario. Revisa el backend o la conexión.');
       }
@@ -121,13 +133,15 @@ function RegisterForm() {
           id="name"
           name="name"
           className="form-control"
-          placeholder="Ej: admin, empleado1, etc."
+          placeholder="Ej: empleado1, admin2, etc."
           value={form.name}
           onChange={handleChange}
           required
         />
         <div className="form-text">
           Este será el nombre que usarás en la pantalla de <strong>Login</strong>.
+          <br />
+          Recuerda que el usuario <code>admin</code> ya existe generado automáticamente.
         </div>
       </div>
 

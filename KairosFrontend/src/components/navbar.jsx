@@ -43,20 +43,32 @@ function Navbar() {
         <div className="collapse navbar-collapse" id="navbarNav">
           {/* MENÚ IZQUIERDO */}
           <ul className="navbar-nav me-auto mb-2 mb-lg-0">
-            {/* NO logueado: ver servicios + login */}
+            {/* Siempre visibles: Servicios y Pantalla */}
+            <li className="nav-item">
+              <NavLink
+                to="/"
+                className={({ isActive }) =>
+                  `nav-link ${isActive ? 'active fw-semibold' : ''}`
+                }
+              >
+                Servicios
+              </NavLink>
+            </li>
+
+            <li className="nav-item">
+              <NavLink
+                to="/pantalla"
+                className={({ isActive }) =>
+                  `nav-link ${isActive ? 'active fw-semibold' : ''}`
+                }
+              >
+                Pantalla
+              </NavLink>
+            </li>
+
+            {/* NO logueado: opciones de acceso */}
             {!user && (
               <>
-                <li className="nav-item">
-                  <NavLink
-                    to="/"
-                    className={({ isActive }) =>
-                      `nav-link ${isActive ? 'active fw-semibold' : ''}`
-                    }
-                  >
-                    Servicios
-                  </NavLink>
-                </li>
-
                 <li className="nav-item">
                   <NavLink
                     to="/login"
@@ -65,6 +77,17 @@ function Navbar() {
                     }
                   >
                     Iniciar sesión
+                  </NavLink>
+                </li>
+
+                <li className="nav-item">
+                  <NavLink
+                    to="/registro"
+                    className={({ isActive }) =>
+                      `nav-link ${isActive ? 'active fw-semibold' : ''}`
+                    }
+                  >
+                    Registrarse
                   </NavLink>
                 </li>
               </>
@@ -96,7 +119,6 @@ function Navbar() {
               </>
             )}
 
-            {/* Menú Administración solo para ADMIN */}
             {isAdmin && (
               <li className="nav-item dropdown">
                 <button

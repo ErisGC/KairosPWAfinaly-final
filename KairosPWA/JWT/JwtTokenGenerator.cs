@@ -32,12 +32,14 @@ namespace KairosPWA.JWT
 
             var claims = new List<Claim>
             {
-                // Sub: nombre de usuario (si no tiene UserName, usa Name)
-                new Claim(JwtRegisteredClaimNames.Sub, user.UserName ?? user.Name),
+                // sujeto = username de login
+                new Claim(JwtRegisteredClaimNames.Sub, user.UserName),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-                // Id de usuario para poder leerlo en los endpoints (ClaimTypes.NameIdentifier)
+
+                // 👇 ESTE ES EL IMPORTANTE PARA AdvanceTurnByService
                 new Claim(ClaimTypes.NameIdentifier, user.IdUser.ToString()),
-                // Nombre para mostrar
+
+                // Nombre legible
                 new Claim(ClaimTypes.Name, user.Name)
             };
 

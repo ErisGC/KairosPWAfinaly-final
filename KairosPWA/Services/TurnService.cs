@@ -1,5 +1,4 @@
 ﻿using AutoMapper;
-using Humanizer;
 using KairosPWA.Data;
 using KairosPWA.DTOs;
 using KairosPWA.Enums;
@@ -16,7 +15,12 @@ namespace KairosPWA.Services
         private readonly IMapper _mapper;
         private readonly IHubContext<NotificationsHub> _hubContext;
         private readonly UserService _userService;
-        public TurnService(ConnectionContext context, IMapper mapper, IHubContext<NotificationsHub> hubContext, UserService userService)
+
+        public TurnService(
+            ConnectionContext context,
+            IMapper mapper,
+            IHubContext<NotificationsHub> hubContext,
+            UserService userService)
         {
             _context = context;
             _mapper = mapper;
@@ -46,8 +50,15 @@ namespace KairosPWA.Services
             await _context.Entry(turnEntidad).Reference(t => t.Client).LoadAsync();
             await _context.Entry(turnEntidad).Reference(t => t.Service).LoadAsync();
 
+            // Notificar actualización de cola
+            await _hubContext.Clients.All.SendAsync("TurnUpdated", new
+            {
+                serviceId = turnEntidad.ServiceId
+            });
+
             return _mapper.Map<TurnDTO>(turnEntidad);
         }
+
         public async Task<TurnDTO> CreatePublicTurnAsync(PublicTurnCreateDTO dto)
         {
             // 1. Validar servicio
@@ -113,12 +124,16 @@ namespace KairosPWA.Services
             // Cargar navegación
             await _context.Entry(turnEntidad).Reference(t => t.Client).LoadAsync();
             await _context.Entry(turnEntidad).Reference(t => t.Service).LoadAsync();
+
+            // Notificar actualización de cola
             await _hubContext.Clients.All.SendAsync("TurnUpdated", new
             {
                 serviceId = dto.ServiceId
             });
+
             return _mapper.Map<TurnDTO>(turnEntidad);
         }
+
         public async Task<bool> CancelPublicTurnAsync(PublicTurnCancelDTO dto)
         {
             // Buscar el cliente por documento
@@ -137,15 +152,19 @@ namespace KairosPWA.Services
             if (turn == null)
                 return false;
 
-            // Opción A: marcar como cancelado
+            // Marcar como cancelado
             turn.State = TurnState.Cancelado.ToString();
             await _context.SaveChangesAsync();
+
+            // Notificar actualización de cola
             await _hubContext.Clients.All.SendAsync("TurnUpdated", new
             {
                 serviceId = dto.ServiceId
             });
+
             return true;
         }
+
         public async Task<ServiceQueueSummaryDTO> GetServiceQueueSummaryAsync(int serviceId)
         {
             // Turno actual (el de menor número pendiente)
@@ -163,7 +182,6 @@ namespace KairosPWA.Services
 
             int pendingCount = await _context.Turns
                 .CountAsync(t => t.ServiceId == serviceId && t.State == TurnState.Pendiente.ToString());
-
 
             return new ServiceQueueSummaryDTO
             {
@@ -188,7 +206,7 @@ namespace KairosPWA.Services
             var turns = await _context.Turns
                 .Include(t => t.Client)
                 .Include(t => t.Service)
-                .Where(t => t.ServiceId == serviceId && t.State == "Pendiente")
+                .Where(t => t.ServiceId == serviceId && t.State == TurnState.Pendiente.ToString())
                 .OrderBy(t => t.Number)
                 .ToListAsync();
             return _mapper.Map<List<TurnDTO>>(turns);
@@ -199,7 +217,7 @@ namespace KairosPWA.Services
             var turn = await _context.Turns
                 .Include(t => t.Client)
                 .Include(t => t.Service)
-                .Where(t => t.ServiceId == serviceId && t.State == "Pendiente")
+                .Where(t => t.ServiceId == serviceId && t.State == TurnState.Pendiente.ToString())
                 .OrderBy(t => t.Number)
                 .FirstOrDefaultAsync();
 
@@ -242,6 +260,7 @@ namespace KairosPWA.Services
             var pendingState = TurnState.Pendiente.ToString();
             var attendedState = TurnState.Atendido.ToString();
 
+            // Siguiente turno pendiente para este servicio
             var turnToAttend = await _context.Turns
                 .Where(t => t.State == pendingState && t.ServiceId == serviceId)
                 .OrderBy(t => t.Number)
@@ -250,21 +269,40 @@ namespace KairosPWA.Services
             if (turnToAttend == null)
                 return null;
 
+            // Marcar como atendido
             turnToAttend.State = attendedState;
             await _context.SaveChangesAsync();
 
+            // Cargar navegación para notificación
+            await _context.Entry(turnToAttend).Reference(t => t.Service).LoadAsync();
+            await _context.Entry(turnToAttend).Reference(t => t.Client).LoadAsync();
+
+            // Registrar que el usuario gestionó un turno de ese servicio
             await _userService.RegisterManagedTurnAsync(userId, serviceId);
 
+            // Notificar a todos que se llamó un turno
+            await _hubContext.Clients.All.SendAsync("TurnCalled", new
+            {
+                serviceId = serviceId,
+                serviceName = turnToAttend.Service?.Name,
+                number = turnToAttend.Number,
+                clientName = turnToAttend.Client?.Name
+            });
+
+            // Buscar el siguiente turno pendiente (para el panel del empleado)
             var nextTurn = await _context.Turns
                 .Include(t => t.Client)
                 .Include(t => t.Service)
                 .Where(t => t.State == pendingState && t.ServiceId == serviceId)
                 .OrderBy(t => t.Number)
                 .FirstOrDefaultAsync();
+
+            // Notificar actualización de cola
             await _hubContext.Clients.All.SendAsync("TurnUpdated", new
             {
                 serviceId = serviceId
             });
+
             return nextTurn != null ? _mapper.Map<TurnDTO>(nextTurn) : null;
         }
 
@@ -281,6 +319,42 @@ namespace KairosPWA.Services
             turn.State = stateEnum.ToString();
             await _context.SaveChangesAsync();
             return true;
+        }
+
+        // 🔹 Obtener el turno pendiente de un cliente (por documento) en un servicio
+        public async Task<TurnDTO?> GetPendingTurnForClientAsync(string clientDocument, int serviceId)
+        {
+            var client = await _context.Clients
+                .FirstOrDefaultAsync(c => c.Id == clientDocument);
+
+            if (client == null)
+                return null;
+
+            var turn = await _context.Turns
+                .Include(t => t.Client)
+                .Include(t => t.Service)
+                .Where(t =>
+                    t.ClientId == client.IdClient &&
+                    t.ServiceId == serviceId &&
+                    t.State == TurnState.Pendiente.ToString())
+                .OrderBy(t => t.Number)
+                .FirstOrDefaultAsync();
+
+            return turn != null ? _mapper.Map<TurnDTO>(turn) : null;
+        }
+
+        // 🔹 Últimos turnos atendidos (para la pantalla tipo banco)
+        public async Task<List<TurnDTO>> GetRecentCalledTurnsAsync(int limit = 20)
+        {
+            var attended = await _context.Turns
+                .Include(t => t.Client)
+                .Include(t => t.Service)
+                .Where(t => t.State == TurnState.Atendido.ToString())
+                .OrderByDescending(t => t.FechaHora)
+                .Take(limit)
+                .ToListAsync();
+
+            return _mapper.Map<List<TurnDTO>>(attended);
         }
     }
 }

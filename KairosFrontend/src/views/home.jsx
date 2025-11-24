@@ -1,12 +1,36 @@
 // src/views/home.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { serviceService } from "../services/serviceService";
 import { turnService } from "../services/turnService";
-import { startConnection } from "../services/signalR";
+import { startConnection, getConnection } from "../services/signalR";
+
+function playNotificationSound() {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioContext();
+    const oscillator = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+
+    oscillator.type = "sine";
+    oscillator.frequency.value = 880; // tono agudo
+
+    oscillator.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    gainNode.gain.setValueAtTime(0.001, ctx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.7);
+
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + 0.7);
+  } catch (e) {
+    console.warn("No se pudo reproducir el sonido de notificación", e);
+  }
+}
 
 function HomeView() {
   const [services, setServices] = useState([]);
-  const [summaries, setSummaries] = useState({}); // { [idService]: { currentNumber, lastNumber, pendingCount } }
+  const [summaries, setSummaries] = useState({}); // { [idService]: {currentNumber, lastNumber, pendingCount} }
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
 
@@ -14,6 +38,21 @@ function HomeView() {
   const [clientDocument, setClientDocument] = useState("");
   const [clientName, setClientName] = useState("");
   const [message, setMessage] = useState("");
+
+  const [clientSession, setClientSession] = useState(() => {
+    try {
+      const stored = localStorage.getItem("kairos_client_session");
+      if (!stored) return null;
+      return JSON.parse(stored);
+    } catch {
+      return null;
+    }
+  });
+
+  const clientSessionRef = useRef(clientSession);
+  useEffect(() => {
+    clientSessionRef.current = clientSession;
+  }, [clientSession]);
 
   const loadData = async () => {
     setError("");
@@ -26,8 +65,12 @@ function HomeView() {
       // cargar summary para cada servicio
       const summariesTemp = {};
       for (const s of data) {
-        const summary = await turnService.GetServiceSummary(s.idService);
-        summariesTemp[s.idService] = summary;
+        try {
+          const summary = await turnService.GetServiceSummary(s.idService);
+          summariesTemp[s.idService] = summary;
+        } catch (err) {
+          console.error("Error cargando summary de servicio", s.idService, err);
+        }
       }
       setSummaries(summariesTemp);
     } catch (error) {
@@ -42,19 +85,16 @@ function HomeView() {
     loadData();
   }, []);
 
-  // Suscribirse a SignalR para actualizaciones en tiempo real
+  // Conexión SignalR para actualizar cola y avisar cuando llega tu turno
   useEffect(() => {
-    let connection;
     let isMounted = true;
 
     const setupSignalR = async () => {
       try {
-        connection = await startConnection();
+        const conn = await startConnection();
+        if (!isMounted) return;
 
-        // Cuando el backend emite "TurnUpdated", recibimos el serviceId
-        connection.on("TurnUpdated", async (payload) => {
-          if (!isMounted) return;
-
+        conn.on("TurnUpdated", async (payload) => {
           const serviceId = payload?.serviceId;
           if (!serviceId) return;
 
@@ -64,12 +104,24 @@ function HomeView() {
               ...prev,
               [serviceId]: summary,
             }));
+
+            const session = clientSessionRef.current;
+            if (
+              session &&
+              session.serviceId === serviceId &&
+              summary.currentNumber === session.turnNumber
+            ) {
+              playNotificationSound();
+              alert(
+                `¡Es tu turno!\nTurno ${session.turnNumber} para el servicio "${session.serviceName}".`
+              );
+            }
           } catch (err) {
-            console.error("Error actualizando resumen vía SignalR:", err);
+            console.error("Error actualizando summary tras TurnUpdated:", err);
           }
         });
       } catch (err) {
-        console.error("Error iniciando conexión SignalR:", err);
+        console.error("Error al conectar con SignalR:", err);
       }
     };
 
@@ -77,17 +129,17 @@ function HomeView() {
 
     return () => {
       isMounted = false;
-      if (connection) {
-        connection.off("TurnUpdated");
-        // No necesariamente cerramos la conexión global aquí, solo removemos el handler
+      const conn = getConnection();
+      if (conn) {
+        conn.off("TurnUpdated");
       }
     };
   }, []);
 
   const handleOpenTurnModal = (service) => {
     setSelectedService(service);
-    setClientDocument("");
-    setClientName("");
+    setClientDocument(clientSession?.document || "");
+    setClientName(clientSession?.name || "");
     setMessage("");
   };
 
@@ -107,7 +159,17 @@ function HomeView() {
         `Tu turno es el número ${created.number} para ${selectedService.name}.`
       );
 
-      // refrescar resumen del servicio (por si acaso, además de SignalR)
+      const session = {
+        document: clientDocument,
+        name: clientName,
+        serviceId: selectedService.idService,
+        serviceName: selectedService.name,
+        turnNumber: created.number,
+      };
+      setClientSession(session);
+      localStorage.setItem("kairos_client_session", JSON.stringify(session));
+
+      // refrescar resumen del servicio
       const summary = await turnService.GetServiceSummary(
         selectedService.idService
       );
@@ -117,7 +179,73 @@ function HomeView() {
       }));
     } catch (err) {
       console.error(err);
-      const msg = err.response?.data?.message || "No se pudo crear el turno.";
+      const msg =
+        err.response?.data?.message || "No se pudo crear el turno.";
+      setMessage(msg);
+
+      // Si ya tenía turno pendiente, intentar recuperar info y "loguearlo"
+      if (
+        err.response?.data?.message &&
+        err.response.data.message.includes(
+          "Ya tienes un turno pendiente para este servicio."
+        )
+      ) {
+        try {
+          const existing = await turnService.GetClientPendingTurn(
+            clientDocument,
+            selectedService.idService
+          );
+          if (existing) {
+            const session = {
+              document: clientDocument,
+              name: clientName,
+              serviceId: selectedService.idService,
+              serviceName: selectedService.name,
+              turnNumber: existing.number,
+            };
+            setClientSession(session);
+            localStorage.setItem(
+              "kairos_client_session",
+              JSON.stringify(session)
+            );
+          }
+        } catch (e2) {
+          console.error(
+            "Error obteniendo turno pendiente del cliente:",
+            e2
+          );
+        }
+      }
+    }
+  };
+
+  const handleCancelTurn = async (service) => {
+    if (!clientSession || clientSession.serviceId !== service.idService) return;
+
+    const confirmed = window.confirm(
+      "¿Seguro que deseas cancelar tu turno? Perderás tu lugar en la cola."
+    );
+    if (!confirmed) return;
+
+    try {
+      await turnService.CancelPublic({
+        clientDocument: clientSession.document,
+        serviceId: clientSession.serviceId,
+      });
+
+      setClientSession(null);
+      localStorage.removeItem("kairos_client_session");
+      setMessage("");
+
+      const summary = await turnService.GetServiceSummary(service.idService);
+      setSummaries((prev) => ({
+        ...prev,
+        [service.idService]: summary,
+      }));
+    } catch (err) {
+      console.error(err);
+      const msg =
+        err.response?.data?.message || "No se pudo cancelar el turno.";
       setMessage(msg);
     }
   };
@@ -129,9 +257,22 @@ function HomeView() {
     <>
       <h1 className="mb-4">Servicios disponibles</h1>
 
+      {clientSession && (
+        <div className="alert alert-warning small">
+          Tienes un turno pendiente:&nbsp;
+          <strong>
+            {clientSession.turnNumber} - {clientSession.serviceName}
+          </strong>{" "}
+          para el documento <strong>{clientSession.document}</strong>. Mantén
+          esta página abierta para recibir la alerta cuando llegue tu turno.
+        </div>
+      )}
+
       <div className="row g-3">
         {services.map((servicio) => {
           const summary = summaries[servicio.idService];
+          const isClientInThisService =
+            clientSession && clientSession.serviceId === servicio.idService;
 
           return (
             <div className="col-md-4" key={servicio.idService}>
@@ -160,11 +301,20 @@ function HomeView() {
                   )}
 
                   <button
-                    className="btn btn-primary mt-auto"
-                    onClick={() => handleOpenTurnModal(servicio)}
+                    className={`btn ${
+                      isClientInThisService ? "btn-danger" : "btn-primary"
+                    } mt-auto`}
+                    onClick={() =>
+                      isClientInThisService
+                        ? handleCancelTurn(servicio)
+                        : handleOpenTurnModal(servicio)
+                    }
                   >
-                    Tomar turno
-                    {summary && ` (último: ${summary.lastNumber})`}
+                    {isClientInThisService
+                      ? "Cancelar turno"
+                      : `Tomar turno${
+                          summary ? ` (último: ${summary.lastNumber})` : ""
+                        }`}
                   </button>
                 </div>
               </div>

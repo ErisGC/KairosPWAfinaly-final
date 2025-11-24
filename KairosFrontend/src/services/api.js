@@ -1,4 +1,3 @@
-// src/services/api.js
 import axios from 'axios';
 
 const api = axios.create({
@@ -8,7 +7,7 @@ const api = axios.create({
   },
 });
 
-// 🔹 Interceptor de REQUEST: añade Authorization si hay token guardado
+// 👉 Meter token en cada request si existe en localStorage
 api.interceptors.request.use(
   (config) => {
     try {
@@ -20,14 +19,13 @@ api.interceptors.request.use(
         }
       }
     } catch {
-      // Si algo falla leyendo el localStorage, seguimos sin token
+      // ignoramos errores de parseo
     }
     return config;
   },
   (error) => Promise.reject(error)
 );
 
-// Interceptor de RESPONSE (ya lo tenías)
 api.interceptors.response.use(
   (response) => response,
   (error) => {

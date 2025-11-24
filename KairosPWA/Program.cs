@@ -74,7 +74,8 @@ builder.Services
             ValidIssuer = builder.Configuration["JwtSettings:Issuer"],
             ValidAudience = builder.Configuration["JwtSettings:Audience"],
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtkey)),
-            RoleClaimType = ClaimTypes.Role
+            RoleClaimType = ClaimTypes.Role,
+            NameClaimType = ClaimTypes.NameIdentifier
         };
     });
 
@@ -114,7 +115,7 @@ app.MapControllers();
 
 app.MapHub<NotificationsHub>("/Hubs/NotificationsHub");
 
-// 🔹 SEED: crear roles y usuario admin si no existen
+// 🔹 SEED + RECREAR BD EN DESARROLLO
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
@@ -122,7 +123,14 @@ using (var scope = app.Services.CreateScope())
     {
         var context = services.GetRequiredService<ConnectionContext>();
 
-        // Crea la BD y tablas si aún no existen
+        // ⚠ SOLO PARA DESARROLLO:
+        // Borramos y recreamos la BD con el modelo actual.
+        if (app.Environment.IsDevelopment())
+        {
+            context.Database.EnsureDeleted();
+        }
+
+        // Crea la BD y tablas según las entidades actuales
         context.Database.EnsureCreated();
 
         // Rol Administrador
@@ -138,7 +146,7 @@ using (var scope = app.Services.CreateScope())
             context.SaveChanges();
         }
 
-        // Rol Empleado (por si lo usas luego)
+        // Rol Empleado
         if (!context.Rols.Any(r => r.Name == "Empleado"))
         {
             context.Rols.Add(new Rol
@@ -150,7 +158,7 @@ using (var scope = app.Services.CreateScope())
         }
 
         // Usuario admin
-        if (!context.Users.Any(u => u.Name == "admin"))
+        if (!context.Users.Any(u => u.UserName == "admin"))
         {
             var adminUser = new User
             {

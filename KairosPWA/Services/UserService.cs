@@ -20,18 +20,25 @@ namespace KairosPWA.Services
 
         public async Task<UserDTO> RegisterUserAsync(UserCreateDTO userCreateDto)
         {
-            var exists = await _context.Users.AnyAsync(u => u.Name == userCreateDto.Name);
-            if (exists)
-                throw new Exception("Ya existe un usuario con este nombre.");
+            // Usamos Name como UserName (nombre de login)
+            var normalizedName = userCreateDto.Name.Trim();
 
-            userCreateDto.Password = BCrypt.Net.BCrypt.HashPassword(userCreateDto.Password);
+            var exists = await _context.Users
+                .AnyAsync(u => u.UserName == normalizedName);
+
+            if (exists)
+                throw new Exception("Ya existe un usuario con este nombre de usuario.");
 
             var userEntity = _mapper.Map<User>(userCreateDto);
+
+            userEntity.UserName = normalizedName;
 
             if (string.IsNullOrWhiteSpace(userEntity.State))
             {
                 userEntity.State = UserState.Activo.ToString();
             }
+
+            userEntity.Password = BCrypt.Net.BCrypt.HashPassword(userCreateDto.Password);
 
             _context.Users.Add(userEntity);
             await _context.SaveChangesAsync();
@@ -64,7 +71,10 @@ namespace KairosPWA.Services
             var user = await _context.Users.FindAsync(id);
             if (user == null) return false;
 
-            user.Name = editDto.Name;
+            var normalizedName = editDto.Name.Trim();
+
+            user.Name = normalizedName;
+            user.UserName = normalizedName;
 
             if (!string.IsNullOrWhiteSpace(editDto.Password))
             {
@@ -89,7 +99,8 @@ namespace KairosPWA.Services
 
         public async Task<bool> UserExistsAsync(string name)
         {
-            return await _context.Users.AnyAsync(u => u.Name == name);
+            var normalizedName = name.Trim();
+            return await _context.Users.AnyAsync(u => u.UserName == normalizedName);
         }
 
         public async Task<bool> ChangePasswordAsync(int id, string newPassword)
@@ -104,9 +115,11 @@ namespace KairosPWA.Services
 
         public async Task<User?> AuthenticateUserAsync(string username, string password)
         {
+            var normalizedUser = username.Trim();
+
             var user = await _context.Users
                 .Include(u => u.Rol)
-                .FirstOrDefaultAsync(u => u.Name == username);
+                .FirstOrDefaultAsync(u => u.UserName == normalizedUser);
 
             if (user == null)
                 return null;
@@ -159,6 +172,14 @@ namespace KairosPWA.Services
 
             return await query.ToListAsync();
         }
+
+        // 👇 NUEVO: buscar usuario por UserName (para usarlo con claims)
+        public async Task<User?> GetUserByUserNameAsync(string userName)
+        {
+            var normalized = userName.Trim();
+            return await _context.Users
+                .Include(u => u.Rol)
+                .FirstOrDefaultAsync(u => u.UserName == normalized);
+        }
     }
 }
-
