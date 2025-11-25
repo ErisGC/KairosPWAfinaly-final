@@ -115,7 +115,7 @@ app.MapControllers();
 
 app.MapHub<NotificationsHub>("/Hubs/NotificationsHub");
 
-// 🔹 SEED + RECREAR BD EN DESARROLLO
+// 🔹 SEED DATOS INICIALES (sin borrar la BD)
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
@@ -123,14 +123,7 @@ using (var scope = app.Services.CreateScope())
     {
         var context = services.GetRequiredService<ConnectionContext>();
 
-        // ⚠ SOLO PARA DESARROLLO:
-        // Borramos y recreamos la BD con el modelo actual.
-        if (app.Environment.IsDevelopment())
-        {
-            context.Database.EnsureDeleted();
-        }
-
-        // Crea la BD y tablas según las entidades actuales
+        // Crea la BD y tablas si aún no existen (no borra nada)
         context.Database.EnsureCreated();
 
         // Rol Administrador

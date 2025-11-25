@@ -3,7 +3,8 @@ import api from './api';
 export const userService = {
   Login: async (credentials) => {
     const response = await api.post('/users/login', {
-      userName: credentials.user,        // 👈 clave correcta
+      // 👇 IMPORTANTE: debe llamarse userName para que enlace con LoginDTO.UserName
+      userName: credentials.user,
       password: credentials.password,
     });
     return response.data;
@@ -31,6 +32,12 @@ export const userService = {
 
   Delete: async (id) => {
     const response = await api.delete(`/users/${id}`);
+    return response.data;
+  },
+
+  // Informe: turnos gestionados por usuario y servicio (solo Admin)
+  GetTurnStats: async () => {
+    const response = await api.get('/users/turns-by-service');
     return response.data;
   },
 };

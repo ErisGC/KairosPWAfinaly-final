@@ -11,10 +11,11 @@ import ProtectedRoute from './components/ProtectedRoute';
 import { useEffect, useState } from 'react';
 import { serviceService } from './services/serviceService';
 import { turnService } from './services/turnService';
-import ScreenView from './views/screen';   // 👈 NUEVO IMPORT
+import { clientService } from './services/clientService';
+import DisplayView from './views/display';
 import './App.css';
 
-// Vistas placeholder del EMPLEADO (las completamos luego)
+// EMPLEADO / ADMIN – Siguiente turno
 function EmployeeNextTurnView() {
   const [services, setServices] = useState([]);
   const [selectedServiceId, setSelectedServiceId] = useState('');
@@ -122,14 +123,81 @@ function EmployeeNextTurnView() {
   );
 }
 
+// EMPLEADO / ADMIN – Consultar clientes
 function EmployeeClientsView() {
+  const [clients, setClients] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const data = await clientService.GetAll();
+        setClients(data || []);
+      } catch (err) {
+        console.error(err);
+        setError('No se pudieron cargar los clientes.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, []);
+
   return (
     <div className="card shadow-sm">
       <div className="card-body">
         <h1 className="h4 mb-3">Consultar Cliente</h1>
         <p className="text-muted small">
-          Aquí el empleado podrá consultar datos del cliente.
+          Aquí el empleado puede consultar los clientes que han tomado turnos.
         </p>
+
+        {loading && <p className="text-muted small">Cargando clientes...</p>}
+        {error && (
+          <div className="alert alert-danger py-2 small" role="alert">
+            {error}
+          </div>
+        )}
+
+        {!loading && !error && clients.length === 0 && (
+          <p className="text-muted small mb-0">
+            Todavía no hay clientes registrados.
+          </p>
+        )}
+
+        {!loading && !error && clients.length > 0 && (
+          <div className="table-responsive mt-3">
+            <table className="table table-sm align-middle">
+              <thead>
+                <tr>
+                  <th>Documento</th>
+                  <th>Nombre</th>
+                  <th>Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {clients.map((c) => (
+                  <tr key={c.idClient}>
+                    <td>{c.id}</td>
+                    <td>{c.name}</td>
+                    <td>
+                      <span
+                        className={`badge ${
+                          c.state?.toLowerCase() === 'activo'
+                            ? 'bg-success'
+                            : 'bg-secondary'
+                        }`}
+                      >
+                        {c.state}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -147,7 +215,7 @@ function App() {
             <Route path="/" element={<HomeView />} />
 
             {/* Pantalla pública de turnos */}
-            <Route path="/pantalla" element={<ScreenView />} />
+            <Route path="/pantalla" element={<DisplayView />} />
 
             {/* Público */}
             <Route path="/login" element={<LoginView />} />
